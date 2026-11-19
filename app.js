@@ -428,7 +428,7 @@ function viewEditBase(){
 var locked=true;
 var S={v:1,settings:null,days:{},events:[],barriers:[]};
 var dev=null, dataKey=null, shas={}, syncing=false, syncAgain=false, syncT=null, hiddenAt=0, syncMsg="";
-var LS_DEV="tt.device", LS_STATE="tt.state", LS_STATUS="tt.status";
+var LS_DEV="tt.device", LS_STATE="tt.state", LS_STATUS="tt.status", noCode=false, OPEN="no-code";
 var tenc=new TextEncoder(), tdec=new TextDecoder(), gate=document.getElementById("gate");
 
 function b64(buf){ var b=new Uint8Array(buf), s="", i; for(i=0;i<b.length;i+=0x8000) s+=String.fromCharCode.apply(null,b.subarray(i,i+0x8000)); return btoa(s); }
@@ -510,8 +510,8 @@ function cleanRepo(v){ return v.replace(/^https?:\/\/github\.com\//,"").replace(
 function checkGh(d){ if(!/^[\w.-]+\/[\w.-]+$/.test(d.repo)) return "Write the repository as owner/name.";
   if(!d.token) return "Paste the access key."; if(d.secret.length<8) return "Choose a passphrase with at least 8 characters."; return ""; }
 async function storeDevice(pin){ var salt=b64(crypto.getRandomValues(new Uint8Array(16)));
-  localStorage.setItem(LS_DEV,JSON.stringify({salt:salt,box:await seal(await deriveKey(pin,salt),dev)})); }
-async function openDevice(pin){ var rec=JSON.parse(localStorage.getItem(LS_DEV)); return unseal(await deriveKey(pin,rec.salt),rec.box); }
+  noCode=!pin; localStorage.setItem(LS_DEV,JSON.stringify({salt:salt,open:noCode,box:await seal(await deriveKey(pin||OPEN,salt),dev)})); }
+async function openDevice(pin){ var rec=JSON.parse(localStorage.getItem(LS_DEV)); return unseal(await deriveKey(pin||OPEN,rec.salt),rec.box); }
 function enter(){ locked=false; derive(); gate.hidden=true; gate.replaceChildren(); appEl.hidden=false; ui.view="home"; ui.date=null; syncMsg=""; setStatus(""); render(); window.scrollTo(0,0); sync(); }
 function lock(){ locked=true; dev=null; dataKey=null; shas={}; clearTimeout(syncT); S=norm(); derive(); view.replaceChildren(); showLock(); }
 
@@ -522,13 +522,13 @@ function showSetup(){ var mode=ui.setupMode||"github";
     mode==="github"?[inputField("Repository","su-repo","text","owner/name"),inputField("Access key","su-token","password","Key for that repository only"),
         inputField("Passphrase","su-pass","password","The same on every device")]
       :h("p",{class:"muted"},"Everything stays on this device. You can connect GitHub later under Edit."),
-    inputField("Code for this device","su-pin","password","At least 4 digits",{inputmode:"numeric"}),
+    inputField("Code for this device (optional)","su-pin","password","Leave empty for no code",{inputmode:"numeric"}),
     h("p",{class:"muted",id:"gate-msg",role:"status"}),
     h("button",{class:"btn primary",type:"button",onclick:doSetup},"Start"))]); }
 async function doSetup(){ var mode=ui.setupMode||"github", pin=val("su-pin"), d={mode:mode}, state=norm();
   if(mode==="github"){ d.repo=cleanRepo(val("su-repo")); d.token=val("su-token"); d.secret=val("su-pass"); var bad=checkGh(d); if(bad) return gateMsg(bad); }
   else d.secret=b64(crypto.getRandomValues(new Uint8Array(24)));
-  if(pin.length<4) return gateMsg("Choose a code with at least 4 digits.");
+  if(pin&&pin.length<4) return gateMsg("A code needs at least 4 digits. Leave it empty for no code.");
   gateMsg("Checking…");
   try{ var key=await deriveKey(d.secret,dataSalt(d));
     if(mode==="github"){ var r=await ghFetch(d,"GET",""); if(!r.ok) return gateMsg(r.status===401?"The access key was refused.":"That key cannot reach the repository.");
@@ -544,14 +544,17 @@ function showLock(){ var sure=false;
     h("button",{class:"link",type:"button",id:"lk-reset",onclick:function(){ if(!sure){ sure=true; document.getElementById("lk-reset").textContent="Tap again to erase this device. Synced data stays in GitHub."; return; }
       localStorage.removeItem(LS_DEV); localStorage.removeItem(LS_STATE); localStorage.removeItem(LS_STATUS); showSetup(); }},"Forgot the code"))]);
   var el=document.getElementById("lk-pin"); if(el) el.focus(); }
-async function doUnlock(){ var pin=val("lk-pin"); if(!pin) return; gateMsg("Opening…");
-  try{ dev=await openDevice(pin); }catch(e){ dev=null; return gateMsg("Wrong code."); }
+async function openWith(pin){ try{ dev=await openDevice(pin); }catch(e){ dev=null; return false; }
+  noCode=!pin;
   try{ dataKey=await deriveKey(dev.secret,dataSalt(dev)); var raw=localStorage.getItem(LS_STATE); S=raw?norm(await unseal(dataKey,JSON.parse(raw))):norm(); }
   catch(e){ S=norm(); }
-  enter(); }
+  enter(); return true; }
+async function doUnlock(){ var pin=val("lk-pin"); if(!pin) return; gateMsg("Opening…"); if(!(await openWith(pin))) gateMsg("Wrong code."); }
+function forget(){ localStorage.removeItem(LS_DEV); localStorage.removeItem(LS_STATE); localStorage.removeItem(LS_STATUS);
+  locked=true; dev=null; dataKey=null; shas={}; noCode=false; clearTimeout(syncT); S=norm(); derive(); view.replaceChildren(); showSetup(); }
 
 /* ---------- Edit: sync, backup, lock ---------- */
-async function doConnect(){ var d={mode:"github",repo:cleanRepo(val("cn-repo")),token:val("cn-token"),secret:val("cn-pass")}, pin=val("cn-pin"), bad=checkGh(d);
+async function doConnect(){ var d={mode:"github",repo:cleanRepo(val("cn-repo")),token:val("cn-token"),secret:val("cn-pass")}, pin=noCode?"":val("cn-pin"), bad=checkGh(d);
   if(bad) return gateMsg(bad,"cn-msg");
   try{ await openDevice(pin); }catch(e){ return gateMsg("Wrong code.","cn-msg"); }
   gateMsg("Checking…","cn-msg");
@@ -572,21 +575,27 @@ function viewEdit(){ var gh=dev&&dev.mode==="github";
           h("div",null,h("button",{class:"btn",type:"button",onclick:function(){ sync(); }},"Sync now"))]
         :[h("p",{class:"muted"},"This device only. Connect a private GitHub repository to sync with your other devices."),
           inputField("Repository","cn-repo","text","owner/name"),inputField("Access key","cn-token","password","Key for that repository only"),
-          inputField("Passphrase","cn-pass","password","The same on every device"),inputField("Code for this device","cn-pin","password","Your current code",{inputmode:"numeric"}),
+          inputField("Passphrase","cn-pass","password","The same on every device"),noCode?null:inputField("Code for this device","cn-pin","password","Your current code",{inputmode:"numeric"}),
           h("p",{class:"muted",id:"cn-msg",role:"status"}),h("div",null,h("button",{class:"btn primary",type:"button",onclick:doConnect},"Connect"))]),
     h("section",{class:"card"},h("h3",null,"Backup"),h("p",{class:"muted"},"The backup file is not encrypted. Keep it somewhere safe."),
       h("div",{class:"row"},h("button",{class:"btn",type:"button",onclick:exportBackup},"Download backup"),
         h("label",{class:"btn",style:"display:inline-flex;align-items:center;cursor:pointer;box-sizing:border-box"},"Restore from backup",
           h("input",{type:"file",id:"bk-file",accept:"application/json,.json",style:"display:none",onchange:importBackup})))),
-    h("section",{class:"card"},h("h3",null,"This device"),h("div",null,h("button",{class:"btn",type:"button",onclick:lock},"Lock now")))
+    h("section",{class:"card"},h("h3",null,"This device"),h("p",{class:"muted"},noCode?"No code on this device. Anyone who opens the app can read it.":"Opens with your code and locks after two minutes in the background."),
+      h("div",{class:"row"},noCode?null:h("button",{class:"btn",type:"button",onclick:lock},"Lock now"),
+        h("button",{class:"btn ghost"+(ui.del==="forget"?" danger":""),type:"button",onclick:function(){ if(ui.del!=="forget"){ ui.del="forget"; return render(); } ui.del=null; forget(); }},
+          ui.del==="forget"?"Tap again. Synced data stays in GitHub.":"Disconnect this device")))
   ]); }
 
 /* ---------- start ---------- */
 document.addEventListener("visibilitychange",function(){
   if(document.hidden){ hiddenAt=Date.now(); if(!locked&&dev&&dev.mode==="github"){ clearTimeout(syncT); sync(); } }
-  else if(!locked){ if(Date.now()-hiddenAt>120000) lock(); else sync(); } });
+  else if(!locked){ if(!noCode&&Date.now()-hiddenAt>120000) lock(); else sync(); } });
 window.addEventListener("online",function(){ sync(); });
 if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(function(){});
 if(!window.crypto||!crypto.subtle){ showGate([h("div",{class:"gatebox"},h("h1",null,"Taqwa Track"),h("p",null,"This browser cannot run the app. Open it over https in Safari or Chrome."))]); }
-else if(localStorage.getItem(LS_DEV)) showLock(); else showSetup();
+else if(localStorage.getItem(LS_DEV)){ var rec0=null; try{ rec0=JSON.parse(localStorage.getItem(LS_DEV)); }catch(e){}
+  if(rec0&&rec0.open){ showGate([h("div",{class:"gatebox"},h("h1",null,"Taqwa Track"),h("p",{class:"muted"},"Opening…"))]); openWith("").then(function(ok){ if(!ok) showSetup(); }); }
+  else if(rec0) showLock(); else showSetup(); }
+else showSetup();
 })();
