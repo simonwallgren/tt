@@ -502,8 +502,11 @@ async function sync(){
 
 /* ---------- gate: first setup and the code screen ---------- */
 function val(id){ var el=document.getElementById(id); return el?el.value.trim():""; }
-function inputField(label,id,type,ph,extra){ return h("label",{class:"field"},label,
-  h("input",Object.assign({type:type,id:id,placeholder:ph||"",autocomplete:"off",autocapitalize:"off",autocorrect:"off",spellcheck:"false"},extra||{}))); }
+function inputField(label,id,type,ph,extra){
+  var inp=h("input",Object.assign({type:type,id:id,placeholder:ph||"",autocomplete:"off",autocapitalize:"off",autocorrect:"off",spellcheck:"false"},extra||{}));
+  if(type!=="password") return h("label",{class:"field"},label,inp);
+  var btn=h("button",{class:"showbtn",type:"button","aria-label":"Show what you typed",onclick:function(ev){ ev.preventDefault(); var hid=inp.type==="password"; inp.type=hid?"text":"password"; btn.textContent=hid?"Hide":"Show"; inp.focus(); }},"Show");
+  return h("label",{class:"field"},label,h("span",{class:"pwrow"},inp,btn)); }
 function gateMsg(t,id){ var m=document.getElementById(id||"gate-msg"); if(m) m.textContent=t||""; }
 function showGate(nodes){ gate.replaceChildren.apply(gate,nodes); gate.hidden=false; appEl.hidden=true; fab.hidden=true; meter.hidden=true; }
 function cleanRepo(v){ return v.replace(/^https?:\/\/github\.com\//,"").replace(/\.git$/,"").replace(/\/+$/,""); }
