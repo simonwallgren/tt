@@ -519,7 +519,7 @@ function showSetup(){ var mode=ui.setupMode||"github";
   showGate([h("div",{class:"gatebox"},h("h1",null,"Taqwa Track"),
     h("div",{class:"chips"},[["github","Sync with GitHub"],["local","This device only"]].map(function(x){
       return h("button",{class:"chip",type:"button","aria-pressed":String(mode===x[0]),onclick:function(){ ui.setupMode=x[0]; showSetup(); }},x[1]); })),
-    mode==="github"?[inputField("Repository","su-repo","text","owner/name"),inputField("Access key","su-token","password","Key for that repository only"),
+    mode==="github"?[inputField("Repository","su-repo","text","owner/name",{value:"simonwallgren/tt-data"}),inputField("Access key","su-token","password","Key for that repository only"),
         inputField("Passphrase","su-pass","password","The same on every device")]
       :h("p",{class:"muted"},"Everything stays on this device. You can connect GitHub later under Edit."),
     inputField("Code for this device (optional)","su-pin","password","Leave empty for no code",{inputmode:"numeric"}),
@@ -574,7 +574,7 @@ function viewEdit(){ var gh=dev&&dev.mode==="github";
       gh?[h("p",{style:"overflow-wrap:anywhere"},dev.repo),h("p",{class:"muted",id:"sync-msg"},syncMsg||"Not synced yet."),
           h("div",null,h("button",{class:"btn",type:"button",onclick:function(){ sync(); }},"Sync now"))]
         :[h("p",{class:"muted"},"This device only. Connect a private GitHub repository to sync with your other devices."),
-          inputField("Repository","cn-repo","text","owner/name"),inputField("Access key","cn-token","password","Key for that repository only"),
+          inputField("Repository","cn-repo","text","owner/name",{value:"simonwallgren/tt-data"}),inputField("Access key","cn-token","password","Key for that repository only"),
           inputField("Passphrase","cn-pass","password","The same on every device"),noCode?null:inputField("Code for this device","cn-pin","password","Your current code",{inputmode:"numeric"}),
           h("p",{class:"muted",id:"cn-msg",role:"status"}),h("div",null,h("button",{class:"btn primary",type:"button",onclick:doConnect},"Connect"))]),
     h("section",{class:"card"},h("h3",null,"Backup"),h("p",{class:"muted"},"The backup file is not encrypted. Keep it somewhere safe."),
